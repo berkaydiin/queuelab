@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QueueLab</title>
+  <meta name="description" content="Interactive discrete-event queue simulator with live comparison against queueing theory (Erlang C, M/M/c/K, priority classes).">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='7' cy='16' r='4' fill='%23E0901A'/%3E%3Ccircle cx='17' cy='16' r='4' fill='%23E0901A'/%3E%3Crect x='24' y='10' width='6' height='12' rx='1.5' fill='%232E63D8'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>QueueLab</h1>
+      <p>A queue you can watch, next to the formula that predicts it.</p>
+    </div>
+    <nav class="presets" aria-label="Scenario presets">
+      <button type="button" data-preset="cafe">Café</button>
+      <button type="button" data-preset="canteen">School canteen</button>
+      <button type="button" data-preset="callcenter">Call centre</button>
+      <button type="button" data-preset="airport">Airport security</button>
+      <button type="button" data-preset="er">Emergency room</button>
+      <button type="button" data-preset="overload">Overloaded</button>
+    </nav>
+  </header>
+
+  <main class="workbench">
+    <aside class="rail" aria-label="Simulation settings">
+      <form id="controls" autocomplete="off">
+        <fieldset>
+          <legend>Demand</legend>
+          <label class="field">
+            <span class="field-name">Arrivals per hour <output id="out-arrivalsPerHour">40</output></span>
+            <input type="range" name="arrivalsPerHour" min="1" max="400" step="1" value="40">
+          </label>
+          <label class="field">
+            <span class="field-name">Average service time <output id="out-serviceMean">4.0</output> min</span>
+            <input type="range" name="serviceMean" min="0.2" max="40" step="0.1" value="4">
+          </label>
+          <label class="field">
+            <span class="field-name">Servers <output id="out-servers">3</output></span>
+            <input type="range" name="servers" min="1" max="24" step="1" value="3">
+          </label>
+          <p class="load" id="load-line">Offered load ρ = <b>0.89</b></p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Behaviour</legend>
+          <label class="field">
+            <span class="field-name">Service-time variability</span>
+            <select name="serviceDist">
+              <option value="deterministic">Deterministic (CV 0)</option>
+              <option value="erlang4">Erlang-4 (CV 0.5)</option>
+              <option value="erlang2">Erlang-2 (CV 0.71)</option>
+              <option value="exponential" selected>Exponential (CV 1)</option>
+              <option value="hyper">Hyperexponential (CV 2)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-name">Queue discipline</span>
+            <select name="discipline">
+              <option value="fifo" selected>First come, first served</option>
+              <option value="lifo">Last come, first served</option>
+              <option value="priority">Two priority classes</option>
+            </select>
+          </label>
+          <label class="field" id="field-priorityShare" hidden>
+            <span class="field-name">High-priority share <output id="out-priorityShare">20</output>%</span>
+            <input type="range" name="priorityShare" min="0.05" max="0.95" step="0.05" value="0.2">
+          </label>
+          <label class="field">
+            <span class="field-name">Waiting room (blank = unlimited)</span>
+            <input type="number" name="maxQueue" min="0" max="500" step="1" placeholder="unlimited" inputmode="numeric">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Measurement</legend>
+          <label class="field">
+            <span class="field-name">Warm-up to exclude (min)</span>
+            <input type="number" name="warmup" min="0" max="100000" step="10" value="60" inputmode="numeric">
+          </label>
+          <label class="field">
+            <span class="field-name">Wait threshold (min)</span>
+            <input type="number" name="waitThreshold" min="0" max="600" step="0.5" value="5" inputmode="decimal">
+          </label>
+          <label class="field">
+            <span class="field-name">Target average wait (min)</span>
+            <input type="number" name="targetWait" min="0.01" max="600" step="0.5" value="2" inputmode="decimal">
+          </label>
+          <label class="field field-seed">
+            <span class="field-name">Random seed</span>
+            <span class="seed-row">
+              <input type="number" name="seed" min="1" max="4294967295" step="1" value="42" inputmode="numeric">
+              <button type="button" id="btn-reseed" title="New random seed" aria-label="New random seed">↻</button>
+            </span>
+          </label>
+        </fieldset>
+      </form>
+      <div class="rail-actions">
+        <button type="button" id="btn-csv">Download customer log (CSV)</button>
+        <button type="button" id="btn-share">Copy link to these settings</button>
+        <span class="toast" id="toast" role="status" aria-live="polite"></span>
+      </div>
+    </aside>
+
+    <section class="stage" aria-label="Live simulation">
+      <div class="stage-bar">
+        <div class="transport">
+          <button type="button" id="btn-run" class="primary">Run</button>
+          <button type="button" id="btn-reset">Reset</button>
+          <label class="speed">
+            <span>Speed</span>
+            <select id="speed">
+              <option value="1">1 min / s</option>
+              <option value="5">5 min / s</option>
+              <option value="20" selected>20 min / s</option>
+              <option value="120">2 h / s</option>
+              <option value="720">12 h / s</option>
+            </select>
+          </label>
+          <button type="button" id="btn-ff" title="Jump ahead by 50,000 customers">Fast-forward 50k</button>
+        </div>
+        <div class="clock" id="clock">
+          <span id="clock-time">0:00</span>
+          <span id="clock-state" class="pill">warming up</span>
+        </div>
+      </div>
+      <canvas id="stage" width="1200" height="340" role="img" aria-label="Animated queue: customers arrive on the left, wait in line, and are served at the stations on the right."></canvas>
+      <p class="legend">
+        <span><i class="dot wait"></i>waiting</span>
+        <span><i class="dot serve"></i>in service</span>
+        <span><i class="dot high"></i>high priority</span>
+        <span><i class="dot turned"></i>turned away</span>
+      </p>
+    </section>
+
+    <section class="results" aria-label="Simulation against theory">
+      <div class="results-head">
+        <h2>Simulation against theory</h2>
+        <p id="model-line">M/M/3 · Erlang C</p>
+      </div>
+      <table id="results-table">
+        <thead>
+          <tr><th scope="col">Measure</th><th scope="col">Simulation</th><th scope="col">Theory</th><th scope="col">Gap</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="staffing" id="staffing-line"></p>
+      <ul class="notes" id="theory-notes"></ul>
+    </section>
+
+    <section class="charts" aria-label="Charts">
+      <figure>
+        <figcaption>Queue length over time</figcaption>
+        <div class="chart-box"><canvas id="chart-queue" role="img" aria-label="Line chart of queue length over simulated time with the theoretical average as a dashed line"></canvas></div>
+      </figure>
+      <figure>
+        <figcaption>How long people waited</figcaption>
+        <div class="chart-box"><canvas id="chart-wait" role="img" aria-label="Histogram of how long customers waited, with the simulated and theoretical means marked"></canvas></div>
+      </figure>
+      <figure>
+        <figcaption>Share of time each server is busy</figcaption>
+        <div class="chart-box"><canvas id="chart-util" role="img" aria-label="Bar chart of each server's share of busy time against the theoretical utilisation"></canvas></div>
+      </figure>
+    </section>
+
+    <section class="explainer">
+      <h2>What the formula does</h2>
+      <div class="explainer-grid">
+        <div>
+          <p>Customers arrive at random with average rate λ per minute. Each server finishes one customer every 1/μ minutes on average. With c servers the system can handle cμ customers per minute, so the offered load is</p>
+          <p class="formula">ρ = λ / (c·μ)</p>
+          <p>When ρ reaches 1 the line never stops growing. Below 1, the long-run averages exist and the Erlang C formula gives the probability that an arrival has to wait at all:</p>
+          <p class="formula">C(c, a) = (aᶜ/c!)/(1−ρ) ÷ [ Σₙ₌₀ᶜ⁻¹ aⁿ/n! + (aᶜ/c!)/(1−ρ) ],&nbsp; a = λ/μ</p>
+          <p>From there the mean queue length is Lq = C·ρ/(1−ρ), and Little's law turns lengths into times: Wq = Lq/λ.</p>
+        </div>
+        <div>
+          <p>The simulation does none of this algebra. It draws random arrival and service times, moves customers through the line one event at a time, and averages what actually happened after the warm-up period. If the model behind the formula is right, the two columns in the table should agree within the confidence interval.</p>
+          <p>Try breaking the agreement on purpose: switch service times to deterministic or hyperexponential and watch the gap open up, then see how the Allen-Cunneen correction (1 + CV²)/2 closes most of it again. Give the queue a finite waiting room to see customers turned away, or add priority classes to see who pays for the fast lane.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>Built for MLH Global Hack Week: Builders (November 2026). Every number is computed in your browser; nothing is sent anywhere. <a href="https://github.com/berkaydiin/queuelab">Source on GitHub</a>.</p>
+  </footer>
+
+  <script src="js/vendor/chart.umd.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
